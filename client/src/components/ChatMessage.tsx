@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Copy, Pencil, Check, X, RefreshCw, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import logo from "@/assets/transparent-logo.png";
 import ReactMarkdown from "react-markdown";
@@ -44,7 +44,6 @@ const ChatMessage = ({
   const isUser = role === "user";
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState(content);
-  const [loadingText, setLoadingText] = useState("Thinking...");
 
   const cleanContent = (text: string) => {
     return text
@@ -59,22 +58,6 @@ const ChatMessage = ({
   };
 
   const displayContent = cleanContent(content);
-
-  useEffect(() => {
-    if (!isLoading || content.length > 0) return;
-    const texts = [
-      "Thinking...",
-      "Processing...",
-      "Analyzing...",
-      "Working...",
-    ];
-    let index = 0;
-    const interval = setInterval(() => {
-      index = (index + 1) % texts.length;
-      setLoadingText(texts[index]);
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [isLoading, content]);
 
   const handleCopy = async (text: string) => {
     try {
@@ -100,24 +83,8 @@ const ChatMessage = ({
       )}
     >
       {!isUser && (
-        <div className="shrink-0 relative w-10 h-10 flex items-center justify-center">
-          {isLoading && (
-            <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,transparent_80deg,#0EA5E9_360deg)] animate-spin" />
-          )}
-          <div
-            className={cn(
-              "relative flex items-center justify-center rounded-full bg-background overflow-hidden z-10 transition-all",
-              isLoading
-                ? "w-[38px] h-[38px]"
-                : "w-full h-full border border-border shadow-sm"
-            )}
-          >
-            <img
-              src={logo}
-              alt="AI"
-              className="w-full h-full object-cover p-0.5"
-            />
-          </div>
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-background shadow-sm">
+          <img src={logo} alt="AI" className="h-full w-full object-cover p-0.5" />
         </div>
       )}
 
@@ -194,17 +161,13 @@ const ChatMessage = ({
             )}
           >
             {isLoading && displayContent.length === 0 ? (
-              <div className="flex flex-col gap-3">
-                <div className="flex items-center gap-2">
-                  <div className="h-2.5 w-2.5 rounded-full bg-primary animate-pulse" />
-                  <span className="text-sm font-semibold animate-pulse bg-linear-to-r from-[#4285F4] via-[#9B72CB] to-[#D96570] bg-clip-text text-transparent">
-                    {status || loadingText}
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  <div className="h-2 w-full max-w-[300px] bg-muted animate-pulse rounded" />
-                  <div className="h-2 w-full max-w-[200px] bg-muted animate-pulse rounded opacity-70" />
-                </div>
+              <div role="status" aria-live="polite" aria-atomic="true" className="flex min-h-10 items-center gap-2.5 text-sm text-muted-foreground">
+                <span>{status || "Thinking…"}</span>
+                <span aria-hidden="true" className="flex items-center gap-1">
+                  <span className="thinking-dot" />
+                  <span className="thinking-dot" />
+                  <span className="thinking-dot" />
+                </span>
               </div>
             ) : (
               <ReactMarkdown

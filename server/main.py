@@ -28,6 +28,7 @@ async def lifespan(app: FastAPI):
     await init_db()
     print("Database initialized.")
     yield
+    await chat.title_jobs.close()
     close_db()
     if os.path.exists("temp_uploads"):
         shutil.rmtree("temp_uploads")

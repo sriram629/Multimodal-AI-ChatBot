@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Copy, Pencil, Check, X, RefreshCw, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import logo from "@/assets/transparent-logo.png";
 import ReactMarkdown from "react-markdown";
@@ -45,6 +45,18 @@ const ChatMessage = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState(content);
 
+  const [loadingText, setLoadingText] = useState("Thinking...");
+  useEffect(() => {
+    if (!isLoading || content.length > 0) return;
+    const texts = ["Thinking...", "Processing...", "Analyzing...", "Working..."];
+    let index = 0;
+    const interval = setInterval(() => {
+      index = (index + 1) % texts.length;
+      setLoadingText(texts[index]);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [isLoading, content]);
+
   const cleanContent = (text: string) => {
     return text
       .replace(/\\\[/g, "$$")
@@ -83,9 +95,7 @@ const ChatMessage = ({
       )}
     >
       {!isUser && (
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-background shadow-sm">
-          <img src={logo} alt="AI" className="h-full w-full object-cover p-0.5" />
-        </div>
+        <img src={logo} alt="AI" className="h-10 w-10 shrink-0 object-contain" />
       )}
 
       <div
@@ -161,13 +171,17 @@ const ChatMessage = ({
             )}
           >
             {isLoading && displayContent.length === 0 ? (
-              <div role="status" aria-live="polite" aria-atomic="true" className="flex min-h-10 items-center gap-2.5 text-sm text-muted-foreground">
-                <span>{status || "Thinking…"}</span>
-                <span aria-hidden="true" className="flex items-center gap-1">
-                  <span className="thinking-dot" />
-                  <span className="thinking-dot" />
-                  <span className="thinking-dot" />
-                </span>
+              <div role="status" aria-live="polite" className="flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <div aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-primary animate-pulse motion-reduce:animate-none" />
+                  <span className="text-sm font-semibold animate-pulse motion-reduce:animate-none bg-linear-to-r from-[#4285F4] via-[#9B72CB] to-[#D96570] bg-clip-text text-transparent">
+                    {status || loadingText}
+                  </span>
+                </div>
+                <div aria-hidden="true" className="space-y-2">
+                  <div className="h-2 w-full max-w-[300px] bg-muted animate-pulse motion-reduce:animate-none rounded" />
+                  <div className="h-2 w-full max-w-[200px] bg-muted animate-pulse motion-reduce:animate-none rounded opacity-70" />
+                </div>
               </div>
             ) : (
               <ReactMarkdown

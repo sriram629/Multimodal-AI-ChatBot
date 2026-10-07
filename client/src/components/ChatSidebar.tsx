@@ -9,7 +9,7 @@ import { api } from "@/lib/api";
 import SessionRename from "./SessionRename";
 import SessionDelete from "./SessionDelete";
 
-export interface Session { session_id: string; title: string; updated_at: string; }
+export interface Session { session_id: string; title: string; updated_at: string; title_is_custom?: boolean; }
 interface Props { isOpen: boolean; onToggle: () => void; currentChatId?: string; isMobile: boolean; onNavigate: () => void; }
 // Server timestamps are UTC; older records omit the timezone suffix.
 function sessionDate(value: string) {
@@ -61,14 +61,24 @@ const ChatSidebar = ({ isOpen, onToggle, currentChatId, isMobile, onNavigate }: 
     fetchSessions();
     window.addEventListener("session-updated", fetchSessions);
     window.addEventListener("refresh-sessions", fetchSessions);
+    window.addEventListener("focus", fetchSessions);
     return () => {
       // Invalidate outstanding requests; this ref is a counter, not a DOM node.
       // eslint-disable-next-line react-hooks/exhaustive-deps
       fetchVersion.current++;
       window.removeEventListener("session-updated", fetchSessions);
       window.removeEventListener("refresh-sessions", fetchSessions);
+      window.removeEventListener("focus", fetchSessions);
     };
-  }, [fetchSessions]);
+  }, [fetchSessions, currentChatId]);
+  const hasUntitledSessions = sessions.some(session => !session.title_is_custom &&
+    ["", "new chat", "untitled", "title"].includes(session.title.trim().toLowerCase()));
+  useEffect(() => {
+    if (!hasUntitledSessions) return;
+    // A title can finish after its socket closes. Refresh briefly after navigation.
+    const timers = [2000, 10000, 20000].map(delay => setTimeout(fetchSessions, delay));
+    return () => timers.forEach(clearTimeout);
+  }, [hasUntitledSessions, currentChatId, fetchSessions]);
   const groups = sessions.reduce<Record<string, Session[]>>((result, session) => {
     const label = dateGroup(session.updated_at);
     (result[label] ??= []).push(session);

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Plus, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Loader2, Trash2 } from "lucide-react";
+import { Plus, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Loader2, Trash2, MoreHorizontal } from "lucide-react";
+import { DropdownMenu } from "radix-ui";
 import { cn } from "@/lib/utils";
 import logo from "@/assets/transparent-logo.png";
 import { api } from "@/lib/api";
@@ -10,6 +11,23 @@ import SessionDelete from "./SessionDelete";
 
 export interface Session { session_id: string; title: string; updated_at: string; }
 interface Props { isOpen: boolean; onToggle: () => void; currentChatId?: string; isMobile: boolean; onNavigate: () => void; }
+// Server timestamps are UTC; older records omit the timezone suffix.
+function sessionDate(value: string) {
+  return new Date(/(?:Z|[+-]\d{2}:\d{2})$/i.test(value) ? value : value + "Z");
+}
+function dateGroup(value: string) {
+  const date = sessionDate(value);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const week = new Date(today);
+  week.setDate(today.getDate() - 7);
+  if (date >= today) return "Today";
+  if (date >= yesterday) return "Yesterday";
+  if (date >= week) return "Previous 7 days";
+  return "Earlier";
+}
 const ChatSidebar = ({ isOpen, onToggle, currentChatId, isMobile, onNavigate }: Props) => {
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -27,24 +45,42 @@ const ChatSidebar = ({ isOpen, onToggle, currentChatId, isMobile, onNavigate }: 
   const [loadError, setLoadError] = useState(false);
   const [renaming, setRenaming] = useState<Session | null>(null);
   const [deleting, setDeleting] = useState<Session | null>(null);
+  const fetchVersion = useRef(0);
   const fetchSessions = useCallback(async () => {
-    try { const res = await api.get("/api/chat/sessions"); setSessions(res.data); setLoadError(false); }
-    catch { setLoadError(true); }
-    finally { setIsLoading(false); }
+    const version = ++fetchVersion.current;
+    try {
+      const res = await api.get<Session[]>("/api/chat/sessions");
+      if (version !== fetchVersion.current) return;
+      setSessions(res.data.sort((a, b) => sessionDate(b.updated_at).getTime() - sessionDate(a.updated_at).getTime()));
+      setLoadError(false);
+    }
+    catch { if (version === fetchVersion.current) setLoadError(true); }
+    finally { if (version === fetchVersion.current) setIsLoading(false); }
   }, []);
   useEffect(() => {
     fetchSessions();
     window.addEventListener("session-updated", fetchSessions);
     window.addEventListener("refresh-sessions", fetchSessions);
     return () => {
+      // Invalidate outstanding requests; this ref is a counter, not a DOM node.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      fetchVersion.current++;
       window.removeEventListener("session-updated", fetchSessions);
       window.removeEventListener("refresh-sessions", fetchSessions);
     };
   }, [fetchSessions]);
+  const groups = sessions.reduce<Record<string, Session[]>>((result, session) => {
+    const label = dateGroup(session.updated_at);
+    (result[label] ??= []).push(session);
+    return result;
+  }, {});
+  const restoreActionFocus = (session: Session) => {
+    requestAnimationFrame(() => document.getElementById("actions-" + session.session_id)?.focus());
+  };
   return (
     <aside ref={panel} role={isMobile ? "dialog" : undefined} aria-modal={isMobile && isOpen ? true : undefined} aria-label="Conversations"
       onKeyDown={e => {
-        if (!isMobile || !isOpen || document.querySelector('dialog[open]')) return;
+        if (!isMobile || !isOpen || document.querySelector('dialog[open], [role=menu]')) return;
         if (e.key === 'Escape') { e.preventDefault(); onToggle(); }
         if (e.key === 'Tab') {
           const buttons = panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], [tabindex="0"]');
@@ -67,23 +103,40 @@ const ChatSidebar = ({ isOpen, onToggle, currentChatId, isMobile, onNavigate }: 
         {isLoading && <div role="status" className="flex justify-center p-5"><Loader2 aria-label="Loading conversations" className="h-5 w-5 animate-spin" /></div>}
         {loadError && isOpen && <div className="px-4 py-3 text-sm text-muted-foreground">Couldn’t load conversations.<button onClick={fetchSessions} className="ml-1 text-primary underline">Retry</button></div>}
         {!isLoading && !loadError && sessions.length === 0 && isOpen && <p className="px-5 py-4 text-sm leading-6 text-muted-foreground">Your conversations will appear here after your first message.</p>}
-        <div className={cn("space-y-1 pb-4", isOpen ? "px-3" : "px-2")}>
-          {sessions.map(session => (
-            <div key={session.session_id} className={cn("group grid min-w-0 items-center rounded-xl", isOpen ? "grid-cols-[minmax(0,1fr)_auto] pr-1" : "grid-cols-1", currentChatId === session.session_id ? "bg-sidebar-accent" : "hover:bg-muted/50")}>
-              <button aria-current={currentChatId === session.session_id ? "page" : undefined} aria-label={session.title || "New chat"} title={session.title} onClick={() => { navigate("/chat/" + session.session_id); onNavigate(); }} className={cn("flex min-w-0 items-center gap-2 rounded-xl p-3 text-left focus-visible:outline-2 focus-visible:outline-primary", !isOpen && "justify-center")}>
-                <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
-                {isOpen && <span className="min-w-0 flex-1"><span className="block truncate text-sm">{session.title.length > 24 ? session.title.slice(0, 24).trimEnd() + "…" : session.title || "New chat"}</span><span className="mt-0.5 block text-xs text-muted-foreground">{new Date(session.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span></span>}
-              </button>
-              {isOpen && <div className="conversation-actions flex shrink-0 items-center transition-opacity">
-                <Button variant="ghost" size="icon" title="Rename conversation" aria-label={"Rename " + session.title} onClick={() => setRenaming(session)} className="h-10 w-9 shrink-0"><Pencil className="h-4 w-4 text-muted-foreground" /></Button>
-                <Button variant="ghost" size="icon" title="Delete conversation" aria-label={"Delete " + session.title} onClick={() => setDeleting(session)} className="h-10 w-9 shrink-0"><Trash2 className="h-4 w-4 text-muted-foreground" /></Button>
-              </div>}
-            </div>
+        <div className={cn("space-y-4 pb-4", isOpen ? "px-3" : "px-2")}>
+          {Object.entries(groups).map(([label, items]) => (
+            <section key={label} aria-label={label}>
+              {isOpen && <h2 className="px-2 pb-2 pt-3 text-xs font-medium text-muted-foreground">{label}</h2>}
+              <div className="space-y-0.5">
+                {items.map(session => (
+                  <div key={session.session_id} className={cn("group relative flex min-w-0 items-center rounded-lg", currentChatId === session.session_id ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground")}>
+                    <button aria-current={currentChatId === session.session_id ? "page" : undefined} aria-label={session.title || "New chat"} title={session.title} onClick={() => { navigate("/chat/" + session.session_id); onNavigate(); }} className={cn("flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-3 text-left focus-visible:outline-2 focus-visible:outline-primary", isOpen ? "pl-2.5 pr-11" : "justify-center px-2")}>
+                      {!isOpen && <MessageSquare className="h-4 w-4 shrink-0" />}
+                      {isOpen && <span className="block min-w-0 truncate text-sm">{session.title || "New chat"}</span>}
+                    </button>
+                    {isOpen && <DropdownMenu.Root modal={false}>
+                      <DropdownMenu.Trigger asChild>
+                        <Button id={"actions-" + session.session_id} variant="ghost" size="icon" title="Conversation options" aria-label={"Options for " + session.title} className="conversation-actions absolute right-1 h-9 w-9 shrink-0 data-[state=open]:opacity-100 data-[state=open]:pointer-events-auto">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenu.Trigger>
+                      <DropdownMenu.Portal container={panel.current}>
+                        <DropdownMenu.Content align="end" sideOffset={4} className="z-[60] min-w-40 rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl"
+                          onCloseAutoFocus={e => { if (document.querySelector('dialog[open]')) e.preventDefault(); }}>
+                          <DropdownMenu.Item onSelect={() => setRenaming(session)} className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 text-sm outline-none focus:bg-muted"><Pencil className="h-4 w-4" />Rename</DropdownMenu.Item>
+                          <DropdownMenu.Item onSelect={() => setDeleting(session)} className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 text-sm text-red-500 outline-none focus:bg-red-500/10"><Trash2 className="h-4 w-4" />Delete</DropdownMenu.Item>
+                        </DropdownMenu.Content>
+                      </DropdownMenu.Portal>
+                    </DropdownMenu.Root>}
+                  </div>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       </div>
-      {renaming && <SessionRename session={renaming} onClose={() => setRenaming(null)} onSaved={() => { setRenaming(null); fetchSessions(); }} />}
-      {deleting && <SessionDelete session={deleting} onClose={() => setDeleting(null)} onDeleted={() => {
+      {renaming && <SessionRename session={renaming} onClose={() => { restoreActionFocus(renaming); setRenaming(null); }} onSaved={() => { restoreActionFocus(renaming); setRenaming(null); fetchSessions(); }} />}
+      {deleting && <SessionDelete session={deleting} onClose={() => { restoreActionFocus(deleting); setDeleting(null); }} onDeleted={() => {
         if (deleting.session_id === currentChatId) navigate("/chat");
         setDeleting(null); fetchSessions();
       }} />}

@@ -8,7 +8,8 @@
   }
 
   .group:hover > .conversation-actions,
-  .group:focus-within > .conversation-actions {
+  .group:focus-within > .conversation-actions,
+  .conversation-actions[data-state="open"] {
     opacity: 1;
     pointer-events: auto;
   }

@@ -290,23 +290,21 @@ Render may need time to start an inactive service. Allow at least ten seconds; a
 
 ### Website Page
 
-Current public landing page, captured on 26 October 2026 after the service loaded.
+The public landing page.
 
 ![Current AI Chat landing page](./screenshots/Website_current.png)
 
 ### Authentication Flow
 
-Current sign-in page, captured on 26 October 2026.
+The sign-in page.
 
 ![Current sign-in page with email and social login options](./screenshots/Login_current.png)
 
-The registration image below is retained from the earlier gallery and may differ from the current interface.
+The registration page.
 
 ![Earlier registration interface](./screenshots/Register_page.png)
 
 ### App Flow
-
-These existing authenticated views are retained as earlier interface screenshots. Current conversation screenshots require a demo account with non-sensitive sample content.
 
 ![Earlier conversation home interface](./screenshots/Home_page.png)
 ![Earlier chat conversation interface](./screenshots/Chat_page.png)

@@ -29,37 +29,46 @@ The current chat model IDs are `gemini-3.5-flash-lite`, `llama-3.3-70b-versatile
 
 ## 🔄 System Architecture & Flow
 
-The server checks conversation ownership before processing a message. Image-generation requests take a separate path; other requests can receive document context and explicit web-search results before the provider call.
+The browser creates or selects a conversation through the REST API, then opens its WebSocket. The server checks authentication and conversation ownership before accepting the connection. New messages, edits, and regeneration requests share the processing path below.
 
 ```mermaid
 flowchart TD
-    A[Authenticated conversation] --> B[Validate message and save user input]
-    B --> C{Image request without attachment or search?}
-    C -- Yes --> D[Submit AI Horde job]
-    D --> E[Poll for image or report failure]
-    C -- No --> F[Retrieve conversation document excerpts]
-    F --> G{Web search requested?}
-    G -- Yes --> H[Serper and DuckDuckGo in parallel]
-    G -- No --> I[Gemini response]
-    H --> I
-    I -- Provider failure --> J[Groq text fallback]
-    J -- Provider failure --> K[Mistral text fallback]
-    I --> L[Stream answer to browser]
-    J --> L
-    K --> L
-    E --> M[Persist assistant response]
-    L --> M
-    M --> N[Send completion event]
-    N --> O[Queue title generation if needed]
-    O --> P[Gemini title with optional Groq fallback]
-    P --> Q[Save title unless manually renamed]
+    A["Create or select conversation via REST"] --> B["Authenticate WebSocket and verify ownership"]
+    B --> C["Receive message, edit, or regenerate"]
+    C --> D["Validate input and update conversation records"]
+    D --> E{"Image-generation pattern matched,<br/>with no attachment or explicit search?"}
+    E -- Yes --> F["Submit and poll AI Horde job"]
+    F --> G["Send image Markdown or failure message to browser"]
+    E -- No --> H["Retrieve document excerpts when available"]
+    H --> I{"Explicit web search?"}
+    I -- Yes --> J["Request Serper and DuckDuckGo results in parallel"]
+    I -- No --> K["Load recent conversation history"]
+    J --> K
+    K --> L["Gemini: stream text and analyze supported images"]
+    L -- "Failure before text, with no images in input or history" --> M["Groq: stream text"]
+    M -- "Failure before text" --> N["Mistral: stream text"]
+    L -- "Complete, partial response, or image-analysis failure" --> O["Return response text or explanatory message"]
+    M -- "Complete or interrupted after partial text" --> O
+    N -- "Complete or unavailable" --> O
+    G --> P["Persist assistant response and update session"]
+    O --> P
+    P --> Q["Send completion event"]
+    Q -. "After processing, when no title notification is pending" .-> T["Queue independent title job"]
+    B -. "Reopened untitled conversation with saved messages" .-> T
+    T --> U{"Title still needed?"}
+    U -- Yes --> V["Generate title with Gemini; optional Groq fallback"]
+    V --> W["Save if title is unchanged, non-custom, and session is active"]
 ```
+
+Response chunks are sent during provider execution, before the final assistant message is saved. Gemini stops with an explanatory message when image analysis fails or a partially streamed answer is interrupted. Groq also preserves a partial answer instead of starting another provider response.
+
+Document-retrieval and web-search failures supply an unavailable-context notice to the model. Stop cancels active processing and sends a completion event; disconnect also cancels the active response. An uncaught processing error or the 180-second timeout sends an error event. These paths can end before an assistant response is saved. Title persistence runs independently of the socket notification and does not replace a custom title.
 
 ## ✨ Key Features
 
 ### 🧠 AI Orchestration & Resilience
 
-* **Text Fallback:** Gemini requests can fall back to Groq, then Mistral. Provider failures are handled within the response workflow.
+* **Text Fallback:** Gemini can fall back to Groq before any text has streamed, provided the input and retained history contain no images. Groq can then fall back to Mistral if it has not streamed text.
 * **Request Routing:** A keyword pattern detects image-generation requests. Web search is enabled by `/search ` or the request's search flag.
 * **Provider Feedback:** The interface displays provider labels and processing status. Text-only fallback providers cannot replace Gemini's image understanding.
 
@@ -248,8 +257,8 @@ The backend tests cover reliability behavior and title generation. The Node.js w
 Text responses follow this order:
 
 1. **Primary — Gemini:** receives text and supported image inputs.
-2. **Fallback — Groq:** handles text when the Gemini request fails.
-3. **Final fallback — Mistral:** handles text when the earlier provider path fails.
+2. **Fallback — Groq:** handles text when Gemini fails before any text has streamed and neither the input nor retained history contains images.
+3. **Final fallback — Mistral:** handles text when Groq fails before any text has streamed.
 
 Fallback providers receive text context. They cannot inspect an image on Gemini's behalf. When all providers are unavailable, the request can still fail.
 
@@ -262,7 +271,7 @@ Title generation has a separate Gemini → Groq path. Groq is used only when con
 1. The browser opens a WebSocket for an existing conversation. JWT authentication and session ownership are checked.
 2. The server validates the message and attachment. A new user message is saved; edit and regeneration requests update the applicable conversation continuation.
 3. A matching image-generation request without attachments or explicit search is sent to AI Horde. Other requests receive available document excerpts, with web results added when requested.
-4. Gemini processes the question and context. Text-provider failures can invoke Groq, followed by Mistral.
+4. Gemini processes the question and context. A failure before text output can invoke Groq when no images are present in the input or history. Groq can invoke Mistral before its own text output begins.
 5. Response chunks and status events are sent to the browser. The completed assistant response is stored in MongoDB.
 6. An asynchronous title job runs when needed. Its database update checks that the user has not supplied a custom title or removed the conversation. Untitled conversations can also be reconsidered when reopened.
 
